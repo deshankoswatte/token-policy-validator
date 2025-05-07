@@ -1,12 +1,8 @@
-import express from "express";
 import https from "https";
-import geoip from "geoip-country";
+import geoiplite from "geoip-lite";
 import dotenv from "dotenv";
 
 dotenv.config();
-
-const app = express();
-app.use(express.json());
 
 const PORT = 3000;
 const BLOCKED_COUNTRIES = ["KP", "IR", "RU", "SY", "CN"];
@@ -28,7 +24,7 @@ function getClientIp(req) {
 }
 
 function lookupCountry(ip) {
-    const geo = geoip.lookup(ip);
+    const geo = geoiplite.lookup(ip);
     return geo?.country || "UNKNOWN";
 }
 
@@ -83,7 +79,7 @@ function allowResponse() {
 }
 
 // Main route
-app.post("/validate-token-policy", async (req, res) => {
+module.exports = async (req, res) => {
     console.log("Received request:", JSON.stringify(req.body, null, 2));
 
     const ip = getClientIp(req);
@@ -133,8 +129,4 @@ app.post("/validate-token-policy", async (req, res) => {
         console.error("Error during AbuseIPDB lookup:", err.message);
         return res.json(denyResponse("Error checking IP reputation."));
     }
-});
-
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+};

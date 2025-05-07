@@ -9,10 +9,9 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
+  "type": "commonjs",
   "dependencies": {
     "dotenv": "^16.5.0",
-    "express": "^5.1.0",
-    "geoip-country": "^4.2.201"
+    "geoip-lite": "^1.4.10"
   }
 }
