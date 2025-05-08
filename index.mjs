@@ -1,14 +1,6 @@
-import express from "express";
 import https from "https";
 import geoip from "geoip-country";
-import dotenv from "dotenv";
 
-dotenv.config();
-
-const app = express();
-app.use(express.json());
-
-const PORT = 3000;
 const BLOCKED_COUNTRIES = ["KP", "IR", "RU", "SY", "CN"];
 const ABUSEIPDB_API_KEY = process.env.ABUSEIPDB_API_KEY;
 const ABUSEIPDB_ENDPOINT = "https://api.abuseipdb.com/api/v2/check";
@@ -16,9 +8,10 @@ const ABUSEIPDB_ENDPOINT = "https://api.abuseipdb.com/api/v2/check";
 const EXPIRY_WORKING_HOURS = 900; // 15 minutes
 const EXPIRY_NON_WORKING_HOURS = 300; // 5 minutes
 
-function getClientIp(req) {
+function getClientIp(event) {
     try {
-        const headers = req.body?.event?.request?.additionalHeaders || [];
+        const body = JSON.parse(event.body);
+        const headers = body?.event?.request?.additionalHeaders || [];
         const ipHeader = headers.find((h) => h.name.toLowerCase() === "x-client-source-ip");
         return ipHeader?.value?.[0] || null;
     } catch (e) {
@@ -70,26 +63,13 @@ function isWorkingHours() {
     return (hourUTC >= 9 && hourUTC < 17); // 9 AM - 5 PM UTC
 }
 
-function denyResponse(reason) {
-    return {
-        actionStatus: "FAILED",
-        failureReason: "access_denied",
-        failureDescription: reason
-    };
-}
+export const handler = async (event) => {
+    console.log("Received event:", JSON.stringify(event, null, 2));
 
-function allowResponse() {
-    return {actionStatus: "SUCCESS"};
-}
-
-// Main route
-app.post("/validate-token-policy", async (req, res) => {
-    console.log("Received request:", JSON.stringify(req.body, null, 2));
-
-    const ip = getClientIp(req);
+    const ip = getClientIp(event);
     if (!ip) {
-        console.warn("No IP address found. Denying by default.");
-        return res.json(denyResponse("Unable to determine client IP."));
+        console.warn("No IP address found. Denying the request by default.");
+        return denyResponse();
     }
 
     console.log(`Client IP: ${ip}`);
@@ -99,7 +79,7 @@ app.post("/validate-token-policy", async (req, res) => {
 
     if (BLOCKED_COUNTRIES.includes(country)) {
         console.log(`Blocked due to restricted country: ${country}`);
-        return res.json(denyResponse(`Access token issuance is blocked from your region (${country}).`));
+        return denyResponse(`Access token issuance is blocked from your region (${country}).`);
     }
 
     try {
@@ -107,34 +87,63 @@ app.post("/validate-token-policy", async (req, res) => {
         console.log(`Abuse Confidence Score: ${abuseScore}`);
 
         if (abuseScore > 75) {
-            console.log(`Blocked due to high abuse score.`);
-            return res.json(denyResponse("Access token issuance is blocked due to high IP risk."));
+            console.log(`Blocked due to high abuse score: ${abuseScore}`);
+            return denyResponse("Access token issuance is blocked due to high IP risk.");
         }
 
         if (abuseScore < 25) {
-            console.log("Low abuse score. Allowing.");
-            return res.json(allowResponse());
+            console.log(`Allowed token issuance: Low abuse score (${abuseScore}). No modifications applied.`);
+            return allowResponse();
         }
 
-        const expiry = isWorkingHours() ? EXPIRY_WORKING_HOURS : EXPIRY_NON_WORKING_HOURS;
-        console.log(`Allowing with expiry ${expiry} seconds`);
+        // Determine expiry based on score and login time
+        let expiry;
+        if (isWorkingHours()) {
+            expiry = EXPIRY_WORKING_HOURS; // 15 mins for low risk during working hours
+        } else {
+            expiry = EXPIRY_NON_WORKING_HOURS; // 5 mins for low risk outside working hours
+        }
 
-        return res.json({
-            actionStatus: "SUCCESS",
-            operations: [
-                {
-                    op: "replace",
-                    path: "/accessToken/claims/expires_in",
-                    value: expiry.toString()
-                }
-            ]
-        });
+        console.log(`Allowing token issuance with expiry: ${expiry} seconds`);
+
+        return {
+            statusCode: 200,
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                actionStatus: "SUCCESS",
+                operations: [
+                    {
+                        op: "replace",
+                        path: "/accessToken/claims/expires_in",
+                        value: expiry.toString()
+                    }
+                ]
+            })
+        };
     } catch (err) {
         console.error("Error during AbuseIPDB lookup:", err.message);
-        return res.json(denyResponse("Error checking IP reputation."));
+        return denyResponse();
     }
-});
+};
 
-app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
-});
+function denyResponse(reason) {
+    return {
+        statusCode: 200,
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            actionStatus: "FAILED",
+            failureReason: "access_denied",
+            failureDescription: reason
+        })
+    };
+}
+
+function allowResponse() {
+    return {
+        statusCode: 200,
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({
+            actionStatus: "SUCCESS"
+        })
+    };
+}

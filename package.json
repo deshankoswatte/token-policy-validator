@@ -2,17 +2,15 @@
   "name": "token-policy-validator",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "index.mjs",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
+  "type": "commonjs",
   "dependencies": {
-    "dotenv": "^16.5.0",
-    "express": "^5.1.0",
     "geoip-country": "^4.2.201"
   }
 }
